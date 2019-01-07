@@ -122,6 +122,7 @@ func Provider() terraform.ResourceProvider {
 			"azurerm_network_security_group":                dataSourceArmNetworkSecurityGroup(),
 			"azurerm_notification_hub":                      dataSourceNotificationHub(),
 			"azurerm_notification_hub_namespace":            dataSourceNotificationHubNamespace(),
+			"azurerm_policy_definition":                     dataSourceArmPolicyDefinition(),
 			"azurerm_platform_image":                        dataSourceArmPlatformImage(),
 			"azurerm_public_ip":                             dataSourceArmPublicIP(),
 			"azurerm_public_ips":                            dataSourceArmPublicIPs(),
