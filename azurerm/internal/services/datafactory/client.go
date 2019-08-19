@@ -6,10 +6,11 @@ import (
 )
 
 type Client struct {
-	DatasetClient       *datafactory.DatasetsClient
-	FactoriesClient     *datafactory.FactoriesClient
-	LinkedServiceClient *datafactory.LinkedServicesClient
-	PipelinesClient     *datafactory.PipelinesClient
+	DatasetClient             *datafactory.DatasetsClient
+	FactoriesClient           *datafactory.FactoriesClient
+	LinkedServiceClient       *datafactory.LinkedServicesClient
+	PipelinesClient           *datafactory.PipelinesClient
+	IntegrationRuntimesClient *datafactory.IntegrationRuntimesClient
 }
 
 func BuildClient(o *common.ClientOptions) *Client {
@@ -26,10 +27,14 @@ func BuildClient(o *common.ClientOptions) *Client {
 	PipelinesClient := datafactory.NewPipelinesClientWithBaseURI(o.ResourceManagerEndpoint, o.SubscriptionId)
 	o.ConfigureClient(&PipelinesClient.Client, o.ResourceManagerAuthorizer)
 
+	IntegrationRuntimesClient := datafactory.NewIntegrationRuntimesClientWithBaseURI(o.ResourceManagerEndpoint, o.SubscriptionId)
+	o.ConfigureClient(&IntegrationRuntimesClient.Client, o.ResourceManagerAuthorizer)
+
 	return &Client{
-		DatasetClient:       &DatasetClient,
-		FactoriesClient:     &FactoriesClient,
-		LinkedServiceClient: &LinkedServiceClient,
-		PipelinesClient:     &PipelinesClient,
+		DatasetClient:             &DatasetClient,
+		FactoriesClient:           &FactoriesClient,
+		LinkedServiceClient:       &LinkedServiceClient,
+		PipelinesClient:           &PipelinesClient,
+		IntegrationRuntimesClient: &IntegrationRuntimesClient,
 	}
 }

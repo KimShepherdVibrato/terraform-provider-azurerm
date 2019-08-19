@@ -190,6 +190,7 @@ func Provider() terraform.ResourceProvider {
 		"azurerm_data_factory_dataset_mysql":                         resourceArmDataFactoryDatasetMySQL(),
 		"azurerm_data_factory_dataset_postgresql":                    resourceArmDataFactoryDatasetPostgreSQL(),
 		"azurerm_data_factory_dataset_sql_server_table":              resourceArmDataFactoryDatasetSQLServerTable(),
+		"azurerm_data_factory_integration_runtime":                   resourceArmDataFactoryIntegrationRuntime(),
 		"azurerm_data_factory_linked_service_data_lake_storage_gen2": resourceArmDataFactoryLinkedServiceDataLakeStorageGen2(),
 		"azurerm_data_factory_linked_service_mysql":                  resourceArmDataFactoryLinkedServiceMySQL(),
 		"azurerm_data_factory_linked_service_postgresql":             resourceArmDataFactoryLinkedServicePostgreSQL(),
