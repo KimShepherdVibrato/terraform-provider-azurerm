@@ -57,6 +57,16 @@ func resourceArmDataFactoryIntegrationRuntime() *schema.Resource {
 				Type:     schema.TypeString,
 				Optional: true,
 			},
+
+			"auth_key_1": {
+				Type:     schema.TypeString,
+				Computed: true,
+			},
+
+			"auth_key_2": {
+				Type:     schema.TypeString,
+				Computed: true,
+			},
 		},
 	}
 }
@@ -147,6 +157,17 @@ func resourceArmDataFactoryIntegrationRuntimeRead(d *schema.ResourceData, meta i
 
 	if props, _ := resp.Properties.AsIntegrationRuntime(); props != nil {
 		d.Set("description", props.Description)
+		d.Set("type", props.Type)
+
+		// Get the auth keys for a self hosted runtime
+		if props.Type == "SelfHosted" {
+			keys, err := client.ListAuthKeys(ctx, id.ResourceGroup, dataFactoryName, name)
+			if err != nil {
+				return err
+			}
+			d.Set("auth_key_1", keys.AuthKey1)
+			d.Set("auth_key_2", keys.AuthKey2)
+		}
 	}
 
 	return nil
