@@ -9,6 +9,7 @@ import (
 	"github.com/hashicorp/terraform/helper/schema"
 	"github.com/hashicorp/terraform/helper/validation"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/azure"
+	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/suppress"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/tf"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/utils"
 )
@@ -58,14 +59,66 @@ func resourceArmDataFactoryIntegrationRuntime() *schema.Resource {
 				Optional: true,
 			},
 
+			"compute_properties": {
+				Type:     schema.TypeList,
+				Optional: true,
+				MaxItems: 1,
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+
+						"location": azure.SchemaLocation(),
+
+						"node_size": {
+							Type:             schema.TypeString,
+							Required:         true,
+							DiffSuppressFunc: suppress.CaseDifference,
+						},
+
+						"node_count": {
+							Type:         schema.TypeInt,
+							Required:     true,
+							ValidateFunc: validation.IntBetween(2, 8),
+						},
+
+						"max_node_executions": {
+							Type:         schema.TypeInt,
+							Required:     true,
+							ValidateFunc: validation.IntBetween(2, 8),
+						},
+					},
+				},
+			},
+
+			"vnet_properties": {
+				Type:     schema.TypeList,
+				Optional: true,
+				MaxItems: 1,
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+						"vnet_id": {
+							Type:             schema.TypeString,
+							Required:         true,
+							DiffSuppressFunc: suppress.CaseDifference,
+							ValidateFunc:     azure.ValidateResourceID,
+						},
+						"subnet": {
+							Type:     schema.TypeString,
+							Required: true,
+						},
+					},
+				},
+			},
+
 			"auth_key_1": {
-				Type:     schema.TypeString,
-				Computed: true,
+				Type:      schema.TypeString,
+				Computed:  true,
+				Sensitive: true,
 			},
 
 			"auth_key_2": {
-				Type:     schema.TypeString,
-				Computed: true,
+				Type:      schema.TypeString,
+				Computed:  true,
+				Sensitive: true,
 			},
 		},
 	}
@@ -102,9 +155,17 @@ func resourceArmDataFactoryIntegrationRuntimeCreateOrUpdate(d *schema.ResourceDa
 			Type:        datafactory.TypeSelfHosted,
 		}
 	case "Managed":
+		managedIntegrationRuntimeComputeProperties, err := expandAzureDataFactoryIntegrationRuntimeComputeProperties(d)
+		if err != nil {
+			return fmt.Errorf("Error parsing integration runtime compute properties: %s", err)
+		}
+		managedIntegrationRuntimeProperties := &datafactory.ManagedIntegrationRuntimeTypeProperties{
+			ComputeProperties: managedIntegrationRuntimeComputeProperties,
+		}
 		integrationRuntime = &datafactory.ManagedIntegrationRuntime{
-			Description: &description,
-			Type:        datafactory.TypeManaged,
+			ManagedIntegrationRuntimeTypeProperties: managedIntegrationRuntimeProperties,
+			Description:                             &description,
+			Type:                                    datafactory.TypeManaged,
 		}
 	}
 
@@ -167,6 +228,16 @@ func resourceArmDataFactoryIntegrationRuntimeRead(d *schema.ResourceData, meta i
 			}
 			d.Set("auth_key_1", keys.AuthKey1)
 			d.Set("auth_key_2", keys.AuthKey2)
+
+		} else if props.Type == "Managed" {
+			managedIntegrationRuntime, _ := resp.Properties.AsManagedIntegrationRuntime()
+			if err := d.Set("compute_properties", flattenAzureDataFactoryIntegrationRuntimeComputeProperties(managedIntegrationRuntime.ManagedIntegrationRuntimeTypeProperties.ComputeProperties)); err != nil {
+				return fmt.Errorf("Error flattening `compute_properties`: %+v", err)
+			}
+			if err := d.Set("vnet_properties", flattenAzureDataFactoryIntegrationRuntimeVNetProperties(managedIntegrationRuntime.ManagedIntegrationRuntimeTypeProperties.ComputeProperties.VNetProperties)); err != nil {
+				return fmt.Errorf("Error flattening `vnet_properties`: %+v", err)
+			}
+
 		}
 	}
 
@@ -199,4 +270,82 @@ func validateAzureRMDataFactoryIntegrationRuntimeName(v interface{}, k string) (
 	}
 
 	return warnings, errors
+}
+
+func flattenAzureDataFactoryIntegrationRuntimeComputeProperties(properties *datafactory.IntegrationRuntimeComputeProperties) interface{} {
+	if properties == nil {
+		return make([]interface{}, 0)
+	}
+
+	result := make(map[string]interface{})
+	if properties.Location != nil {
+		result["location"] = *properties.Location
+	}
+	if properties.NodeSize != nil {
+		result["node_size"] = *properties.NodeSize
+	}
+	if properties.NumberOfNodes != nil {
+		result["node_count"] = *properties.NumberOfNodes
+	}
+	if properties.MaxParallelExecutionsPerNode != nil {
+		result["max_node_executions"] = *properties.MaxParallelExecutionsPerNode
+	}
+
+	return []interface{}{result}
+}
+
+func expandAzureDataFactoryIntegrationRuntimeComputeProperties(d *schema.ResourceData) (*datafactory.IntegrationRuntimeComputeProperties, error) {
+	computeProperties := d.Get("compute_properties").([]interface{})
+	config := computeProperties[0].(map[string]interface{})
+
+	location := config["location"].(string)
+	nodeSize := config["node_size"].(string)
+	nodeCount := int32(config["node_count"].(int))
+	maxNodeExecutions := int32(config["max_node_executions"].(int))
+
+	vnetProperties, err := expandAzureDataFactoryIntegrationRuntimeVNetProperties(d)
+	if err != nil {
+		return nil, err
+	}
+
+	integrationRuntimeComputeProperties := &datafactory.IntegrationRuntimeComputeProperties{
+		Location:                     &location,
+		NodeSize:                     &nodeSize,
+		NumberOfNodes:                &nodeCount,
+		MaxParallelExecutionsPerNode: &maxNodeExecutions,
+		VNetProperties:               vnetProperties,
+	}
+
+	return integrationRuntimeComputeProperties, nil
+}
+
+func flattenAzureDataFactoryIntegrationRuntimeVNetProperties(properties *datafactory.IntegrationRuntimeVNetProperties) interface{} {
+	if properties == nil {
+		return make([]interface{}, 0)
+	}
+
+	result := make(map[string]interface{})
+	if properties.VNetID != nil {
+		result["vnet_id"] = *properties.VNetID
+	}
+	if properties.Subnet != nil {
+		result["subnet"] = *properties.Subnet
+	}
+
+	return []interface{}{result}
+}
+
+func expandAzureDataFactoryIntegrationRuntimeVNetProperties(d *schema.ResourceData) (*datafactory.IntegrationRuntimeVNetProperties, error) {
+	vnetProperties := d.Get("vnet_properties").([]interface{})
+	config := vnetProperties[0].(map[string]interface{})
+
+	vnetID := config["vnet_id"].(string)
+	subnet := config["subnet"].(string)
+
+	integrationRuntimeVNetProperties := &datafactory.IntegrationRuntimeVNetProperties{
+		VNetID: &vnetID,
+		Subnet: &subnet,
+	}
+
+	return integrationRuntimeVNetProperties, nil
 }
