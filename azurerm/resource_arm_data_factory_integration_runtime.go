@@ -85,25 +85,17 @@ func resourceArmDataFactoryIntegrationRuntime() *schema.Resource {
 							Required:     true,
 							ValidateFunc: validation.IntBetween(2, 8),
 						},
-					},
-				},
-			},
 
-			"vnet_properties": {
-				Type:     schema.TypeList,
-				Optional: true,
-				MaxItems: 1,
-				Elem: &schema.Resource{
-					Schema: map[string]*schema.Schema{
 						"vnet_id": {
 							Type:             schema.TypeString,
-							Required:         true,
+							Optional:         true,
 							DiffSuppressFunc: suppress.CaseDifference,
 							ValidateFunc:     azure.ValidateResourceID,
 						},
+
 						"subnet": {
 							Type:     schema.TypeString,
-							Required: true,
+							Optional: true,
 						},
 					},
 				},
@@ -149,12 +141,12 @@ func resourceArmDataFactoryIntegrationRuntimeCreateOrUpdate(d *schema.ResourceDa
 
 	var integrationRuntime datafactory.BasicIntegrationRuntime
 	switch irType := d.Get("type").(string); irType {
-	case "SelfHosted":
+	case string(datafactory.TypeSelfHosted):
 		integrationRuntime = &datafactory.SelfHostedIntegrationRuntime{
 			Description: &description,
 			Type:        datafactory.TypeSelfHosted,
 		}
-	case "Managed":
+	case string(datafactory.TypeManaged):
 		managedIntegrationRuntimeComputeProperties, err := expandAzureDataFactoryIntegrationRuntimeComputeProperties(d)
 		if err != nil {
 			return fmt.Errorf("Error parsing integration runtime compute properties: %s", err)
@@ -220,8 +212,8 @@ func resourceArmDataFactoryIntegrationRuntimeRead(d *schema.ResourceData, meta i
 		d.Set("description", props.Description)
 		d.Set("type", props.Type)
 
-		// Get the auth keys for a self hosted runtime
-		if props.Type == "SelfHosted" {
+		switch props.Type {
+		case datafactory.TypeSelfHosted:
 			keys, err := client.ListAuthKeys(ctx, id.ResourceGroup, dataFactoryName, name)
 			if err != nil {
 				return err
@@ -229,15 +221,11 @@ func resourceArmDataFactoryIntegrationRuntimeRead(d *schema.ResourceData, meta i
 			d.Set("auth_key_1", keys.AuthKey1)
 			d.Set("auth_key_2", keys.AuthKey2)
 
-		} else if props.Type == "Managed" {
+		case datafactory.TypeManaged:
 			managedIntegrationRuntime, _ := resp.Properties.AsManagedIntegrationRuntime()
 			if err := d.Set("compute_properties", flattenAzureDataFactoryIntegrationRuntimeComputeProperties(managedIntegrationRuntime.ManagedIntegrationRuntimeTypeProperties.ComputeProperties)); err != nil {
 				return fmt.Errorf("Error flattening `compute_properties`: %+v", err)
 			}
-			if err := d.Set("vnet_properties", flattenAzureDataFactoryIntegrationRuntimeVNetProperties(managedIntegrationRuntime.ManagedIntegrationRuntimeTypeProperties.ComputeProperties.VNetProperties)); err != nil {
-				return fmt.Errorf("Error flattening `vnet_properties`: %+v", err)
-			}
-
 		}
 	}
 
@@ -290,6 +278,10 @@ func flattenAzureDataFactoryIntegrationRuntimeComputeProperties(properties *data
 	if properties.MaxParallelExecutionsPerNode != nil {
 		result["max_node_executions"] = *properties.MaxParallelExecutionsPerNode
 	}
+	if properties.VNetProperties != nil {
+		result["vnet_id"] = *properties.VNetProperties.VNetID
+		result["subnet"] = *properties.VNetProperties.Subnet
+	}
 
 	return []interface{}{result}
 }
@@ -303,9 +295,19 @@ func expandAzureDataFactoryIntegrationRuntimeComputeProperties(d *schema.Resourc
 	nodeCount := int32(config["node_count"].(int))
 	maxNodeExecutions := int32(config["max_node_executions"].(int))
 
-	vnetProperties, err := expandAzureDataFactoryIntegrationRuntimeVNetProperties(d)
-	if err != nil {
-		return nil, err
+	vnetID := config["vnet_id"].(string)
+	subnet := config["subnet"].(string)
+
+	var integrationRuntimeVNetProperties *datafactory.IntegrationRuntimeVNetProperties
+	if vnetID != "" && subnet != "" {
+		integrationRuntimeVNetProperties = &datafactory.IntegrationRuntimeVNetProperties{
+			VNetID: &vnetID,
+			Subnet: &subnet,
+		}
+	} else if vnetID != "" || subnet != "" {
+		return nil, fmt.Errorf("Both `vnet_id` and `subnet` must be provided if setting the vnet properties")
+	} else {
+		integrationRuntimeVNetProperties = nil
 	}
 
 	integrationRuntimeComputeProperties := &datafactory.IntegrationRuntimeComputeProperties{
@@ -313,39 +315,8 @@ func expandAzureDataFactoryIntegrationRuntimeComputeProperties(d *schema.Resourc
 		NodeSize:                     &nodeSize,
 		NumberOfNodes:                &nodeCount,
 		MaxParallelExecutionsPerNode: &maxNodeExecutions,
-		VNetProperties:               vnetProperties,
+		VNetProperties:               integrationRuntimeVNetProperties,
 	}
 
 	return integrationRuntimeComputeProperties, nil
-}
-
-func flattenAzureDataFactoryIntegrationRuntimeVNetProperties(properties *datafactory.IntegrationRuntimeVNetProperties) interface{} {
-	if properties == nil {
-		return make([]interface{}, 0)
-	}
-
-	result := make(map[string]interface{})
-	if properties.VNetID != nil {
-		result["vnet_id"] = *properties.VNetID
-	}
-	if properties.Subnet != nil {
-		result["subnet"] = *properties.Subnet
-	}
-
-	return []interface{}{result}
-}
-
-func expandAzureDataFactoryIntegrationRuntimeVNetProperties(d *schema.ResourceData) (*datafactory.IntegrationRuntimeVNetProperties, error) {
-	vnetProperties := d.Get("vnet_properties").([]interface{})
-	config := vnetProperties[0].(map[string]interface{})
-
-	vnetID := config["vnet_id"].(string)
-	subnet := config["subnet"].(string)
-
-	integrationRuntimeVNetProperties := &datafactory.IntegrationRuntimeVNetProperties{
-		VNetID: &vnetID,
-		Subnet: &subnet,
-	}
-
-	return integrationRuntimeVNetProperties, nil
 }
