@@ -101,6 +101,35 @@ func resourceArmDataFactoryIntegrationRuntime() *schema.Resource {
 				},
 			},
 
+			"ssis_properties": {
+				Type:     schema.TypeList,
+				Optional: true,
+				MaxItems: 1,
+				Elem: &schema.Resource{
+					Schema: map[string]*schema.Schema{
+
+						"catalog_info": ,
+							"CatalogServerEndpoint"
+							"CatalogAdminUserName"
+							"CatalogAdminPassword"
+							"CatalogPricingTier"
+						"custom_setup_script_properties": ,
+							"BlobContainerURI"
+							"SasToken"
+						"data_proxy_properties": ,
+							"ConnectVia"
+								"ReferenceName"
+								"***Type"
+							"StagingLinkedService"
+								"ReferenceName"
+								"***Type"
+							"Path"
+						"edition": ,
+						"licenseType": {"BasePrice", "LicenseIncluded"},
+					},
+				},
+			},
+
 			"auth_key_1": {
 				Type:      schema.TypeString,
 				Computed:  true,
