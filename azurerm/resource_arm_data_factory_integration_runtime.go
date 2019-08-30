@@ -387,6 +387,10 @@ func flattenAzureDataFactoryIntegrationRuntimeSsisProperties(properties *datafac
 
 func expandAzureDataFactoryIntegrationRuntimeSsisProperties(d *schema.ResourceData) (*datafactory.IntegrationRuntimeSsisProperties, error) {
 	ssisProperties := d.Get("ssis_properties").([]interface{})
+	if len(ssisProperties) == 0 {
+		return nil, nil
+	}
+
 	config := ssisProperties[0].(map[string]interface{})
 
 	licenseType := config["license_type"].(string)
