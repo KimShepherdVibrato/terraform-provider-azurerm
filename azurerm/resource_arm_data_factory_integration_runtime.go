@@ -108,24 +108,36 @@ func resourceArmDataFactoryIntegrationRuntime() *schema.Resource {
 				Elem: &schema.Resource{
 					Schema: map[string]*schema.Schema{
 
-						"catalog_info": ,
-							"CatalogServerEndpoint"
-							"CatalogAdminUserName"
-							"CatalogAdminPassword"
-							"CatalogPricingTier"
-						"custom_setup_script_properties": ,
-							"BlobContainerURI"
-							"SasToken"
-						"data_proxy_properties": ,
-							"ConnectVia"
-								"ReferenceName"
-								"***Type"
-							"StagingLinkedService"
-								"ReferenceName"
-								"***Type"
-							"Path"
-						"edition": ,
-						"licenseType": {"BasePrice", "LicenseIncluded"},
+						// "catalog_info": ,
+						// 	"CatalogServerEndpoint"
+						// 	"CatalogAdminUserName"
+						// 	"CatalogAdminPassword"
+						// 	"CatalogPricingTier"
+						// "custom_setup_script_properties": ,
+						// 	"BlobContainerURI"
+						// 	"SasToken"
+						// "data_proxy_properties": ,
+						// 	"ConnectVia"
+						// 		"ReferenceName"
+						// 		"***Type"
+						// 	"StagingLinkedService"
+						// 		"ReferenceName"
+						// 		"***Type"
+						// 	"Path"
+
+						"edition": {
+							Type:         schema.TypeString,
+							Required:     true,
+							ForceNew:     true,
+							ValidateFunc: validation.StringInSlice([]string{"Enterprise", "Standard"}, false),
+						},
+
+						"license_type": {
+							Type:         schema.TypeString,
+							Required:     true,
+							ForceNew:     true,
+							ValidateFunc: validation.StringInSlice([]string{"BasePrice", "LicenseIncluded"}, false),
+						},
 					},
 				},
 			},
@@ -180,14 +192,22 @@ func resourceArmDataFactoryIntegrationRuntimeCreateOrUpdate(d *schema.ResourceDa
 		if err != nil {
 			return fmt.Errorf("Error parsing integration runtime compute properties: %s", err)
 		}
+
+		managedIntegrationRuntimeSsisProperties, err := expandAzureDataFactoryIntegrationRuntimeSsisProperties(d)
+		if err != nil {
+			return fmt.Errorf("Error parsing integration runtime SSIS properties: %s", err)
+		}
+
 		managedIntegrationRuntimeProperties := &datafactory.ManagedIntegrationRuntimeTypeProperties{
 			ComputeProperties: managedIntegrationRuntimeComputeProperties,
+			SsisProperties:    managedIntegrationRuntimeSsisProperties,
 		}
 		integrationRuntime = &datafactory.ManagedIntegrationRuntime{
 			ManagedIntegrationRuntimeTypeProperties: managedIntegrationRuntimeProperties,
 			Description:                             &description,
 			Type:                                    datafactory.TypeManaged,
 		}
+
 	}
 
 	config := datafactory.IntegrationRuntimeResource{
@@ -254,6 +274,9 @@ func resourceArmDataFactoryIntegrationRuntimeRead(d *schema.ResourceData, meta i
 			managedIntegrationRuntime, _ := resp.Properties.AsManagedIntegrationRuntime()
 			if err := d.Set("compute_properties", flattenAzureDataFactoryIntegrationRuntimeComputeProperties(managedIntegrationRuntime.ManagedIntegrationRuntimeTypeProperties.ComputeProperties)); err != nil {
 				return fmt.Errorf("Error flattening `compute_properties`: %+v", err)
+			}
+			if err := d.Set("ssis_properties", flattenAzureDataFactoryIntegrationRuntimeSsisProperties(managedIntegrationRuntime.ManagedIntegrationRuntimeTypeProperties.SsisProperties)); err != nil {
+				return fmt.Errorf("Error flattening `ssis_properties`: %+v", err)
 			}
 		}
 	}
@@ -348,4 +371,31 @@ func expandAzureDataFactoryIntegrationRuntimeComputeProperties(d *schema.Resourc
 	}
 
 	return integrationRuntimeComputeProperties, nil
+}
+
+func flattenAzureDataFactoryIntegrationRuntimeSsisProperties(properties *datafactory.IntegrationRuntimeSsisProperties) interface{} {
+	if properties == nil {
+		return make([]interface{}, 0)
+	}
+
+	result := make(map[string]interface{})
+	result["license_type"] = string(properties.LicenseType)
+	result["edition"] = string(properties.Edition)
+
+	return []interface{}{result}
+}
+
+func expandAzureDataFactoryIntegrationRuntimeSsisProperties(d *schema.ResourceData) (*datafactory.IntegrationRuntimeSsisProperties, error) {
+	ssisProperties := d.Get("ssis_properties").([]interface{})
+	config := ssisProperties[0].(map[string]interface{})
+
+	licenseType := config["license_type"].(string)
+	edition := config["edition"].(string)
+
+	integrationRuntimeSsisProperties := &datafactory.IntegrationRuntimeSsisProperties{
+		LicenseType: datafactory.IntegrationRuntimeLicenseType(licenseType),
+		Edition:     datafactory.IntegrationRuntimeEdition(edition),
+	}
+
+	return integrationRuntimeSsisProperties, nil
 }
