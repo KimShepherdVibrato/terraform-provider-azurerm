@@ -2,6 +2,8 @@ package azurerm
 
 import (
 	"fmt"
+	"regexp"
+	"strings"
 
 	"github.com/Azure/azure-sdk-for-go/services/compute/mgmt/2018-06-01/compute"
 	"github.com/hashicorp/terraform/helper/schema"
@@ -9,6 +11,7 @@ import (
 	"github.com/hashicorp/terraform/helper/validation"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/azure"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/tf"
+	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/helpers/validate"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/features"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/internal/tags"
 	"github.com/terraform-providers/terraform-provider-azurerm/azurerm/utils"
@@ -31,14 +34,49 @@ func resourceArmVirtualMachineExtensions() *schema.Resource {
 				ForceNew: true,
 			},
 
+			"virtual_machine_id": {
+				Type:          schema.TypeString,
+				Optional:      true, //todo required in 2.0
+				ForceNew:      true,
+				ValidateFunc:  azure.ValidateResourceID,
+				ConflictsWith: []string{"virtual_machine_name"},
+			},
+
 			"location": azure.SchemaLocation(),
 
-			"resource_group_name": azure.SchemaResourceGroupName(),
+			"resource_group_name": {
+				Type:       schema.TypeString,
+				Optional:   true,
+				ForceNew:   true,
+				Computed:   true,
+				Deprecated: "This property has been deprecated as the resource group is now pulled from the virtual machine ID and will be removed in version 2.0 of the provider",
+				ValidateFunc: func(v interface{}, k string) (warnings []string, errors []error) {
+					value := v.(string)
+
+					if len(value) > 80 {
+						errors = append(errors, fmt.Errorf("%q may not exceed 80 characters in length", k))
+					}
+
+					if strings.HasSuffix(value, ".") {
+						errors = append(errors, fmt.Errorf("%q may not end with a period", k))
+					}
+
+					// regex pulled from https://docs.microsoft.com/en-us/rest/api/resources/resourcegroups/createorupdate
+					if matched := regexp.MustCompile(`^[-\w\._\(\)]+$`).Match([]byte(value)); !matched {
+						errors = append(errors, fmt.Errorf("%q may only contain alphanumeric characters, dash, underscores, parentheses and periods", k))
+					}
+
+					return warnings, errors
+				},
+			},
 
 			"virtual_machine_name": {
-				Type:     schema.TypeString,
-				Required: true,
-				ForceNew: true,
+				Type:          schema.TypeString,
+				Optional:      true,
+				ForceNew:      true,
+				Deprecated:    "This property has been deprecated in favour of the virtual_machine_id property and will be removed in version 2.0 of the provider",
+				ValidateFunc:  validate.NoEmptyStrings,
+				ConflictsWith: []string{"virtual_machine_id"},
 			},
 
 			"publisher": {
@@ -87,7 +125,10 @@ func resourceArmVirtualMachineExtensionsCreateUpdate(d *schema.ResourceData, met
 	ctx := meta.(*ArmClient).StopContext
 
 	name := d.Get("name").(string)
+
+	vmId := d.Get("virtual_machine_id").(string)
 	vmName := d.Get("virtual_machine_name").(string)
+
 	resGroup := d.Get("resource_group_name").(string)
 
 	if features.ShouldResourcesBeImported() && d.IsNewResource() {
@@ -109,6 +150,27 @@ func resourceArmVirtualMachineExtensionsCreateUpdate(d *schema.ResourceData, met
 	typeHandlerVersion := d.Get("type_handler_version").(string)
 	autoUpgradeMinor := d.Get("auto_upgrade_minor_version").(bool)
 	t := d.Get("tags").(map[string]interface{})
+
+	if vmName == "" {
+		if vmId == "" {
+			return fmt.Errorf("one of `virtual_machine_id` or `virtual_machine_name` must be set")
+		}
+		id, err2 := azure.ParseAzureResourceID(vmId)
+		if err2 != nil {
+			return err2
+		}
+
+		resGroup = id.ResourceGroup
+
+		vmNameTemp, ok := id.Path["virtualMachines"]
+		if !ok {
+			return fmt.Errorf("virtual_machine_id does not contain `virtualMachines`: %q", vmId)
+		}
+		vmName = vmNameTemp
+
+	} else if resGroup == "" {
+		return fmt.Errorf("one of `resource_group_name` must be set when `virtual_machine_name` is used")
+	}
 
 	extension := compute.VirtualMachineExtension{
 		Location: &location,
@@ -186,6 +248,9 @@ func resourceArmVirtualMachineExtensionsRead(d *schema.ResourceData, meta interf
 	if location := resp.Location; location != nil {
 		d.Set("location", azure.NormalizeLocation(*location))
 	}
+
+	d.Set("virtual_machine_id", id)
+
 	d.Set("virtual_machine_name", vmName)
 	d.Set("resource_group_name", resGroup)
 
